@@ -1,24 +1,21 @@
 const path = require("path");
-const { ObjectId } = require("mongoose").Types;
+const { ObjectId } = require('mongoose').Types;
 const multer = require("multer");
 const { File, Project } = require("../../DB/mongodb");
 const fs = require("fs");
-const { exec } = require("child_process");
-const util = require("util");
+const { exec } = require('child_process');
+const util = require('util'); 
 const execPromise = util.promisify(exec);
 const allowedTypes = /jpeg|jpg|png|gif|bmp|webp|tiff/;
-const { logger } = require("../../utils/logger");
 
 const fileFilter = (req, file, cb) => {
-  if (!file) return cb(new Error("No file uploaded"));
+  if(!file)return cb(new Error('No file uploaded'));
 
-  const isValid =
-    allowedTypes.test(file.mimetype) &&
-    allowedTypes.test(path.extname(file.originalname).toLowerCase());
+  const isValid = allowedTypes.test(file.mimetype) && allowedTypes.test(path.extname(file.originalname).toLowerCase());
   if (isValid) return cb(null, true);
-
+  
   const error = new Error("Only image files (jpeg, jpg, png) are allowed");
-  error.code = "INVALID_FILE_TYPE";
+  error.code = 'INVALID_FILE_TYPE';
   return cb(error);
 };
 
@@ -28,7 +25,7 @@ const storage = multer.diskStorage({
 
     if (!username) {
       const error = new Error("Username is required");
-      error.code = "USERNAME_REQUIRED";
+      error.code = 'USERNAME_REQUIRED';
       return cb(error);
     }
     const userDir = path.join(__dirname, "../../../uploads", username);
@@ -37,13 +34,13 @@ const storage = multer.diskStorage({
       console.log(`creating user directory: ${userDir}`);
     } catch (err) {
       const error = new Error(`Error creating user directory: ${err.message}`);
-      error.code = "DIRECTORY_CREATION_FAILED";
+      error.code = 'DIRECTORY_CREATION_FAILED';
       return cb(error);
     }
     cb(null, userDir);
   },
   filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1E9);
     cb(null, `${uniqueSuffix}-${file.originalname}`);
   },
 });
@@ -52,8 +49,6 @@ exports.upload = multer({ storage, fileFilter });
 
 exports.addFile = async (req, res) => {
   try {
-    logger.info({ function: "files/addFile", step: "Start" });
-
     if (!req.file) {
       return res.status(400).json({ message: "Please upload an image" });
     }
@@ -62,13 +57,7 @@ exports.addFile = async (req, res) => {
 
     const projectObjectId = new ObjectId(projectId);
     const project = await Project.findById(projectObjectId);
-    if (!project) {
-      logger.error({
-        message: "Error when searching project",
-        projectId: projectId,
-      });
-      return res.status(404).json({ message: "Project not found" });
-    }
+    if (!project) return res.status(404).json({ message: "Project not found" });
 
     //const imageBuffer = fs.readFileSync(imagePath);
     //const base64Image = imageBuffer.toString("base64");
@@ -79,31 +68,15 @@ exports.addFile = async (req, res) => {
     try {
       const { stdout, stderr } = await execPromise(pythonCommand);
       if (stderr) {
-        const message = "Error processing image with AI service.";
-        logger.error({
-          message: message,
-          error: stderr,
-        });
-        console.error("Error processing image with AI service: ", stderr);
-        return res.status(500).json({
-          message: message,
-          error: stderr,
-        });
+        console.error("Error processing image with AI service:", stderr);
+        return res.status(500).json({ message: "Error processing image with AI service", error: stderr });
       }
       let result;
       try {
         result = JSON.parse(stdout);
       } catch (parseError) {
-        const message = "Error parsing AI processing result";
-        logger.error({
-          message: message,
-          error: parseError.message,
-        });
         console.error("Error parsing Python response:", parseError);
-        return res.status(500).json({
-          message: message,
-          error: parseError.message,
-        });
+        return res.status(500).json({ message: "Error parsing AI processing result", error: parseError.message });
       }
 
       const { matches, annotated_image_coded } = result;
@@ -122,7 +95,7 @@ exports.addFile = async (req, res) => {
         doorNumber,
         windowNumber,
         textNumber,
-        image: imageUrl, //: annotated_image_coded,
+        image:imageUrl, //: annotated_image_coded, 
         aiContent,
       });
 
@@ -130,77 +103,39 @@ exports.addFile = async (req, res) => {
       await Project.findByIdAndUpdate(
         projectObjectId,
         { $push: { files: newFile._id } },
-        { new: true },
+        { new: true }
       );
 
-      const updateProject = await Project.findById(projectObjectId).populate(
-        "files",
-      );
-
-      logger.info({ function: "files/addFile", step: "End" });
-
-      return res.status(201).json({
-        message: "File added successfully",
-        file: newFile,
-        project: updateProject,
-      });
+      const updateProject = await Project.findById(projectObjectId).populate('files');
+        return res.status(201).json({ message: "File added successfully", file: newFile,project: updateProject });
+      } catch (error) {
+        console.error(`Error executing Python script: ${error}`);
+        return res.status(500).json({ message: "Error processing image with AI service", error: error.message });
+      }
     } catch (error) {
-      const message = "Error processing image with AI service";
-      logger.error({
-        message: message,
-        error: error.message,
-      });
-
-      console.error(`Error executing Python script: ${error}`);
-      return res.status(500).json({
-        message: message,
-        error: error.message,
-      });
+      console.log("Error adding file:", error);
+      res.status(500).json({ message: "Error adding file", error });
     }
-  } catch (error) {
-    const message = "Error adding file";
-    logger.error({
-      message: message,
-      error: error,
-    });
-    console.log("Error adding file:", error);
-    res.status(500).json({ message: message, error });
-  }
 };
 
 exports.getFileById = async (req, res) => {
   try {
-    logger.info({ function: "files/getFileById", step: "Start" });
-
     const { id } = req.params;
     console.log(id);
     const file = await File.findById(id);
-    if (!file) {
-      const message = "File not found";
-      logger.error({
-        message: message,
-      });
-      return res.status(404).json({ message: message });
-    }
+    if (!file) return res.status(404).json({ message: "File not found" });
     console.log(file);
-    logger.info({ function: "files/getFileById", step: "End" });
     res.status(200).json({ file });
   } catch (err) {
-    const message = "Error getting file";
-    logger.error({
-      message: message,
-    });
-    res.status(500).json({ message: message, err });
+    res.status(500).json({ message: "Error getting file", err });
   }
 };
 
 exports.updateFile = async (req, res) => {
   try {
-    logger.info({ function: "files/UpdateFIle", step: "Start" });
     const { id } = req.params;
     const { surname } = req.body;
     const updateData = {};
-    logger.info({ id: id, surname: surname });
 
     if (surname) {
       updateData.surname = surname;
@@ -215,16 +150,8 @@ exports.updateFile = async (req, res) => {
       try {
         const { stdout, stderr } = await execPromise(pythonCommand);
         if (stderr) {
-          const message = "Error processing image with AI service";
-          logger.error({
-            message: message,
-            error: stderr,
-          });
           console.error("Error processing image with AI service:", stderr);
-          return res.status(500).json({
-            message: message,
-            error: stderr,
-          });
+          return res.status(500).json({ message: "Error processing image with AI service", error: stderr });
         }
 
         const result = JSON.parse(stdout);
@@ -236,122 +163,52 @@ exports.updateFile = async (req, res) => {
         updateData.image = annotated_image_coded;
         updateData.aiContent = JSON.stringify(matches);
       } catch (error) {
-        const message = "Error processing image with AI service";
-        logger.error({
-          message: message,
-          error: error.message,
-        });
         console.error("Error executing Python script:", error);
-        return res.status(500).json({
-          message: message,
-          error: error.message,
-        });
+        return res.status(500).json({ message: "Error processing image with AI service", error: error.message });
       }
     }
 
-    const updatedFile = await File.findByIdAndUpdate(id, updateData, {
-      new: true,
-    });
-    if (!updatedFile) {
-      const message = "File not found";
-      logger.error({
-        message: message,
-      });
+    const updatedFile = await File.findByIdAndUpdate(id, updateData, { new: true });
+    if (!updatedFile) return res.status(404).json({ message: "File not found" });
 
-      return res.status(404).json({ message: message });
-    }
-
-    logger.info({ function: "files/updateFile", step: "End" });
-    res
-      .status(200)
-      .json({ message: "File updated successfully", file: updatedFile });
+    res.status(200).json({ message: "File updated successfully", file: updatedFile });
   } catch (error) {
-    const message = "Error updating file";
-    logger.error({
-      message: message,
-      error: error,
-    });
-    res.status(500).json({ message: message, error });
+    res.status(500).json({ message: "Error updating file", error });
   }
 };
 
 exports.updateSurname = async (req, res) => {
   try {
-    logger.info({ function: "files/updateSurname", step: "Start" });
     const { id } = req.params;
     const { surname } = req.body;
-    logger.info({ id: id, surname: surname });
-
-    if (!surname) {
-      const message = "Surname is required";
-      logger.error({
-        message: message,
-      });
-      return res.status(400).json({ message: message });
-    }
-
-    const updateFile = await File.findByIdAndUpdate(
-      id,
-      { surname },
-      { new: true },
-    );
-    if (!updateFile) {
-      const message = "File not found";
-      logger.error({
-        message: message,
-      });
-      return res.status(404).json({ message: message });
-    }
-
-    logger.info({ function: "files/updateSurname", step: "End" });
-    res
-      .status(200)
-      .json({ message: "Surname updated successfully", file: updateFile });
+    if (!surname) return res.status(400).json({ message: "Surname is required" });
+    const updateFile = await File.findByIdAndUpdate(id, { surname }, { new: true });
+    if (!updateFile) return res.status(404).json({ message: "File not found" });
+    res.status(200).json({ message: "Surname updated successfully", file: updateFile });
   } catch (err) {
-    const message = "Error updating surname";
-    logger.error({
-      message: message,
-      error: err,
-    });
-    res.status(500).json({ message: message, error });
+    res.status(500).json({ message: "Error updating surname", error });
   }
 };
 
 exports.updateStatus = async (req, res) => {
   try {
-    logger.info({ function: "files/updateStatus", step: "Start" });
-
     const { id } = req.params;
     const { status } = req.body;
-    logger.info({ id: id, status: status });
 
     const validStatuses = ["deleted", "bookmarked", "archived", "default"];
     if (!status || !validStatuses.includes(status)) {
-      const message = "Invalid or missing status";
-      logger.error({
-        message: message,
-      });
-      return res.status(400).json({ message: message });
+      return res.status(400).json({ message: "Invalid or missing status" });
     }
 
     const updatedFile = await File.findByIdAndUpdate(
       id,
       { status, latestStatusUpdate: Date.now() },
-      { new: true },
+      { new: true }
     );
 
-    if (!updatedFile) {
-      const message = "File not found";
-      logger.error({
-        message: message,
-      });
-      return res.status(404).json({ message: message });
-    }
+    if (!updatedFile) return res.status(404).json({ message: "File not found" });
 
-    logger.info({ function: "files/updateStatus", step: "End" });
-    res
-      .status(200)
-      .json({ message: "Status updated successfully", file: updatedFile });
+    res.status(200).json({ message: "Status updated successfully", file: updatedFile });
   } catch (error) {
     res.status(500).json({ message: "Error updating status", error });
   }
@@ -359,8 +216,6 @@ exports.updateStatus = async (req, res) => {
 
 exports.deleteFile = async (req, res) => {
   try {
-    logger.info({ function: "files/deleteFile", step: "Start" });
-
     const { id } = req.params;
     const deletedFile = await File.findByIdAndDelete(id);
     if (!deletedFile) return res.status(404).json({ message: "File not found" });
