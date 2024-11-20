@@ -90,6 +90,7 @@ exports.addFile = async (req, res) => {
       const newFile = new File({
         userId,
         projectId: projectObjectId,
+        name: req.file.filename,
         surname,
         doorNumber,
         windowNumber,
@@ -120,10 +121,8 @@ exports.addFile = async (req, res) => {
 exports.getFileById = async (req, res) => {
   try {
     const { id } = req.params;
-    console.log(id);
     const file = await File.findById(id);
     if (!file) return res.status(404).json({ message: "File not found" });
-    console.log(file);
     res.status(200).json({ file });
   } catch (err) {
     res.status(500).json({ message: "Error getting file", err });
@@ -216,10 +215,21 @@ exports.updateStatus = async (req, res) => {
 exports.deleteFile = async (req, res) => {
   try {
     const { id } = req.params;
-    const deletedFile = await File.findByIdAndDelete(id);
-    if (!deletedFile) return res.status(404).json({ message: "File not found" });
+    const file = await File.findById(id);
+    if (!file) return res.status(404).json({ message: "File not found" });
+    const filePath = path.join(__dirname, "../../../", file.image);
+    fs.unlink(filePath, (err) => {
+      if (err) {
+        console.error("Error deleting file from server:", err);
+        return res.status(500).json({ message: "Error deleting file from server", error: err.message });
+      }
+    });
+    await File.findByIdAndDelete(id);
+    await Project.findByIdAndUpdate(file.projectId, { $pull: { files: id } });
+
     res.status(200).json({ message: "File deleted successfully" });
   } catch (error) {
+    console.error("Error deleting file:", error);
     res.status(500).json({ message: "Error deleting file", error });
   }
 };

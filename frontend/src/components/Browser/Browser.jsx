@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect} from 'react';
 import FolderItem from './FolderItem';
 import SearchBar from './SearchBar';
 import '../../styles/pages/browser.scss';

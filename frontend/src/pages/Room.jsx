@@ -29,7 +29,7 @@ const Room = ({handleLogout}) => {
     }
   }, [userProfile, username]);
 
-  if (!userProfile || userProfile?.username !== username) {
+  if (!userProfile || userProfile?.username !== username || !token) {
     return null;
   }
   
